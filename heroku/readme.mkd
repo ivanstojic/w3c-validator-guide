@@ -1,0 +1,142 @@
+# Running W3C Validator with HTML5 support on Heroku
+
+
+### Prerequisites
+
+This guide assumes that you have access to a Linux machine with the following:
+
+* [Heroku toolbelt](https://toolbelt.heroku.com/) - installed and configured with your login information
+* [GIT](http://git-scm.com/downloads) client - it can also be downloaded as part of the Heroku Toolbelt
+
+If you choose to deploy the HTML5 validator alongside the basic W3C validator, you will also need:
+
+* Java SDK version 1.6 or higher, and a properly set JAVA_HOME environment variable pointing to the SDK's installation directory
+* [Mercurial](http://mercurial.selenic.com/) client
+* [Subversion](http://subversion.apache.org/) client
+
+
+### Overview of the installation process
+
+The Heroku platform offers the ability to run only one application type in one *app* instance. This means that we will have to run up to two separate Heroku *app*s: an optional one for the [validator.nu](http://validator.nu/) HTML5 validator, and a mandatory one for the base W3C validator.
+
+Since we need to have the validator.nu's HTML5 validator already configured when we set up and deploy the W3C validator, the instructions will first guide you through deployment in that order.
+
+If you choose not to deploy HTML5 validation, skip the following section and continue with the section below titled "Setting up W3C validator."
+
+
+### Preparation steps
+
+All of the work we are going to do assumes that we have a directory called *validator* in our Linux home directory. While you are at it, we might as well change into that directory:
+
+    mkdir ~/validator
+    cd ~/validator
+    
+Now let's get started with the serious work...
+
+
+## Setting up validator.nu
+
+### Downloading and compiling the HTML5 validator
+
+First, let's make a directory to house the validator.nu sources during the build phase, and enter it:
+
+    mkdir validator-nu
+    cd validator-nu
+
+Now download the build system for the HTML5 validator, enter the build directory, and tell it to download all of the dependencies and components of the system and try to build and run the system:
+
+    hg clone https://bitbucket.org/validator/build .
+    ./build.py --local all
+    
+This step will most likely fail with a *ClassNotFoundException* Java exception. It's a side effect of validator.nu's partially broken build system. If the source is fixed by the time you are reading this tutorial, a correctly running HTML5 validator system will report readyness for use with the following lines (but different dates/times, of course):
+
+    2012-09-06 22:46:12.141:INFO::jetty-6.1.26
+    2012-09-06 22:46:12.202:INFO::Started SocketConnector@0.0.0.0:8888
+
+If the system compiled and ran correctly, stop it by pressing Ctrl-C. If not, you should be back at your prompt anyway, but with lots of errors on your screen. These errors resolve when you run the build system a second time, but we won't do that yet.
+
+In either case, we first need to apply a special patch to the source code to make it compatible with running on the Heroku manifold:
+
+    wget -qO- https://raw.github.com/gist/3663668/cb2fdb506ec93373b59b34cbb60a7725abd6d5bc/heroku.patch | patch -p0
+    
+It should not respond with any errors, and result in this output:
+
+    patching file validator/src/nu/validator/servlet/Main.java
+    
+Now, try building the system again:
+
+    ./build.py --local all
+
+This time, you should not get any errors and you should be greeted with the message that the validator started:
+
+    2012-09-06 22:47:22.437:INFO::jetty-6.1.26
+    2012-09-06 22:47:22.509:INFO::Started SocketConnector@0.0.0.0:8888
+
+If you made it this far, we're almost there! Stop the running HTML5 validator instance and let's finish this by creating a startup script and packing everything for deployment to Heroku:
+
+    ./build.py --local script
+    ./build.py --local tar
+
+
+### Deploying to Heroku
+
+Now that we have the validator built, we need to prepare a directory which will serve as a staging point for Heroku deployments. As Heroku uses *git* to manage deployments, we will need to initialize that directory as a git repository. First off, let's create a directory one level above the validator.nu's source directory, get into it and initialize the git repository:
+
+    mkdir ../heroku-html5
+    cd ../heroku-html5
+    git init
+    
+Now we need to copy the packed HTML5 validator binaries into our Heroku directory, and unpack them. Afer that, we are going to modify the startup script so it is compatible with the Heroku manifold.
+
+    for i in `ls ../validator-nu/*.tar.gz`; do tar xf $i; done
+    sed -e 's/8888/\$PORT/' < run-validator.sh > rv.tmp
+    mv rv.tmp run-validator.sh
+    chmod +x ./run-validator.sh
+
+Almost ready for testing… we need to create a Heroku Procman [procfile](https://devcenter.heroku.com/articles/procfile) which will instruct Heroku how to run our program, commit all of our files to git, as well as actually create the Heroku application:
+
+    echo "web: ./run-validator.sh" > Procfile
+    git add -A
+    git commit -am 'initial version'
+    heroku apps:create --buildpack http://github.com/ryandotsmith/null-buildpack.git
+    
+Heroku should respond along the following lines:
+
+    Creating whispering-coast-8382... done, stack is cedar
+    
+    BUILDPACK_URL=http://github.com/ryandotsmith/null-buildpack.git
+    http://whispering-coast-8382.herokuapp.com/ | git@heroku.com:whispering-coast-8382.git
+    Git remote heroku added    
+    
+**One important point here**: the name of the Heroku application (ie. *whispering-coast-8382* in our example) will be different for each user. Remember that name as you will need it later if you plan on deleting the application from the command line.
+
+We are now ready to send our files to Heroku. This step will automatically start the application after it is uploaded, but it may take a minute or two to actually start. The first push will likely take some time, so after running this, you might as well go grab a quick cup of coffee:
+
+    git push -u heroku master
+    
+If the process was successful, this command should result in significant output ending in something along these lines. Note that the actual slug size, git commit IDs and the URL will differ based on the name of the application created above:
+
+    -----> Compiled slug size is 16.5MB
+    -----> Launching... done, v1
+           http://whispering-coast-8382.herokuapp.com deployed to Heroku
+           
+    To git@heroku.com:whispering-coast-8382.git
+       ee8f46a..84ab89d  master -> master
+       
+Supposing you let that simmer for a few minutes, we are now ready to open up the application and test it out:
+
+    heroku open
+    
+This should start your local web browser and open the Validator.nu's HTML5 validator interface. Half of the work is done. Let's get with the other half!
+
+*P.S.* If you want to monitor, manage or modify the paralel execution of your Heroku application, you should take a look at Heroku's [command line client](https://devcenter.heroku.com/categories/command-line) documentation.
+
+
+## Setting up W3C validator
+
+Start…
+
+
+---
+
+Written by Ivan Stojic <ivans@ordecon.com>, licensed under [Creative Commons Attribution-ShareAlike 3.0 Unported (CC BY-SA 3.0)](http://creativecommons.org/licenses/by-sa/3.0/)
