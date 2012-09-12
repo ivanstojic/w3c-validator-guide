@@ -3,10 +3,14 @@
 
 ### Prerequisites
 
-This guide assumes that you have access to a Linux machine with the following:
+This guide assumes that you have access to a Linux or OS X machine with the following:
 
 * [Heroku toolbelt](https://toolbelt.heroku.com/) - installed and configured with your login information
 * [GIT](http://git-scm.com/downloads) client - it can also be downloaded as part of the Heroku Toolbelt
+* [Vulcan](https://github.com/heroku/vulcan) build system - used to build W3C validator dependencies that will work on Heroku's manifold
+* [cURL](http://curl.haxx.se/) command line utilities - you might already have *wget* which is similar, but Heroku doesn't have it, so we'll use *curl* to be compatible through and through
+
+This guide might also be useful for Windows users who are running Cygwin, but it hasn't been tested in this scenario.
 
 If you choose to deploy the HTML5 validator alongside the basic W3C validator, you will also need:
 
@@ -57,7 +61,7 @@ If the system compiled and ran correctly, stop it by pressing Ctrl-C. If not, yo
 
 In either case, we first need to apply a special patch to the source code to make it compatible with running on the Heroku manifold:
 
-    wget -qO- https://raw.github.com/gist/3663668/cb2fdb506ec93373b59b34cbb60a7725abd6d5bc/heroku.patch | patch -p0
+    curl -L https://raw.github.com/gist/3663668/cb2fdb506ec93373b59b34cbb60a7725abd6d5bc/heroku.patch | patch -p0
     
 It should not respond with any errors, and result in this output:
 
@@ -134,7 +138,48 @@ This should start your local web browser and open the Validator.nu's HTML5 valid
 
 ## Setting up W3C validator
 
-Start…
+The W3C validator requires a complex mixture of external binaries, a standalone Perl HTTP server and the W3C validator code itself. Let's address those one at a time:
+
+### Setting up the Vulcan build system
+
+Each Heroku instance is capable of running a wide variety of binaries that are included in the Heroku manifold image. However, some of the tools that are required by the W3C validator are not included by default. In order to prepare binaries for deployment on Heroku, we need to compile them using Heroku's build tool called Vulcan.
+
+The first step to this process is to create a Vulcan build server
+
+    vulcan create vulcan-somename
+    
+In the previous command, you'd replace *somename* with either your username, or some other identifying string. However, you will not need this name again unless you decide to delete the Vulcan Heroku app from your Heroku account. Future builds using Vulcan will use your own build app, without any special configuration.
+
+The previous command should take a bit of time and result in a lot of output, ending in something along these lines:
+
+    -----> Building runtime environment
+    -----> Discovering process types
+           Procfile declares types -> web
+    -----> Compiled slug size is 4.1MB
+    -----> Launching... done, v3
+           http://vulcan-somename.herokuapp.com deployed to Heroku
+
+    To git@heroku.com:vulcan-somename.git
+     * [new branch]      master -> master
+
+
+### Building W3C dependencies using Vulcan
+
+#### Building *tidyp*
+
+We need the binaries for the *tidyp* HTML cleaner and validator. We will be compiling it using Vulcan:
+
+    cd ~/validator/
+    curl -LO http://github.com/downloads/petdance/tidyp/tidyp-1.04.tar.gz
+    tar xf tidyp-1.04.tar.gz
+    cd tidyp-1.04
+    vulcan build -o ../tidyp-bin.tgz
+    
+The last command will pack up the contents of the current directory and send it over to your previously created Vulcan build app on Heroku. It will compile the code, pack up the binaries and download them back to your computer in a file called *~/validator/tidyp-bin.tgz*.
+
+##### Installing W3C Perl dependencies
+
+It's now time to set up Perl by downloading the Bundle::W3C::Validator package from CPAN, a central Perl software repository.
 
 
 ---
